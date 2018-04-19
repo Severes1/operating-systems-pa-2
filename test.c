@@ -22,6 +22,7 @@
 
 int test_mkFS();
 int test_mountFS();
+int test_createFile();
 
 int main() {
 	int ret;
@@ -37,7 +38,7 @@ int main() {
 
 	///////
 
-	ret = mountFS();
+	ret = test_mountFS();
 	if(ret != 0) {
 		fprintf(stdout, "%s%s%s%s%s", ANSI_COLOR_BLUE, "TEST mountFS ", ANSI_COLOR_RED, "FAILED\n", ANSI_COLOR_RESET);
 		return -1;
@@ -46,7 +47,7 @@ int main() {
 
 	///////
 
-	ret = createFile("test.txt");
+	ret = test_createFile();
 	if(ret != 0) {
 		fprintf(stdout, "%s%s%s%s%s", ANSI_COLOR_BLUE, "TEST createFile ", ANSI_COLOR_RED, "FAILED\n", ANSI_COLOR_RESET);
 		return -1;
@@ -96,5 +97,23 @@ int test_mkFS() {
         }
     }
     
+    return 0;
+}
+
+int test_mountFS() {
+    printf("MOUNTFS TEST NOT IMPLEMENTED\n");
+    return 0;
+}
+
+int test_createFile() {
+    int ret = createFile("test.txt");
+    if (ret != 0) {
+        return -1;
+    }
+    ret = createFile("test.txt");
+    if (ret != -1) {
+        // should already exist
+        return -1;
+    }
     return 0;
 }

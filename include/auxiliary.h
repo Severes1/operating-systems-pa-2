@@ -8,4 +8,8 @@
 
 /* Create an empty superblock */
 void init_superblock(SuperBlock * sblock, long disk_size);
+void init_inode(INode * inode);
+int allocate_inode(); // Returns the index
+int allocate_data_block(); // Returns the index
+SuperBlock load_superblock();
 

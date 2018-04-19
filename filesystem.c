@@ -6,10 +6,10 @@
  * @date	01/03/2017
  */
 
+#include "include/crc.h"			// Headers for the CRC functionality
 #include "include/filesystem.h"		// Headers for the core functionality
 #include "include/metadata.h"		// Type and structure declaration of the file system
 #include "include/auxiliary.h"		// Headers for auxiliary functions
-#include "include/crc.h"			// Headers for the CRC functionality
 #include <string.h>
 
 /*
@@ -58,7 +58,33 @@ int unmountFS(void)
  */
 int createFile(char *fileName)
 {
-	return -2;
+    // Check filename
+    if (strlen(fileName) > MAX_FILENAME) {
+        return -2;
+    }
+    SuperBlock sblock = load_superblock();
+    for (int i = 0; i < sblock.num_inodes; i++) {
+        if (strcmp(fileName, (char *) &(sblock.filenames[i])) == 0) {
+            return -1;
+        }
+    }
+    // Update INode allocation
+    int inode_index = allocate_inode();
+    if (inode_index == -1) {
+        return -1;
+    } 
+    // Create INode
+    INode inode;
+    // Init INode
+    inode.size = 0;
+    inode.num_blocks = 0;
+    // Write INode to disk
+    bwrite(DEVICE_IMAGE, 3 + inode_index, (char*) &inode);
+    // Update SuperBlock
+    sblock.num_inodes++;
+    memcpy(&sblock.filenames[inode_index], fileName, strlen(fileName));
+    bwrite(DEVICE_IMAGE, 0, (char *) &sblock);
+    return 0;
 }
 
 /*
@@ -142,3 +168,21 @@ void init_superblock(SuperBlock * sblock, long disk_size) {
     sblock->num_data_blocks = num_blocks_on_disk - 3 - max_number_of_files;
 }
 
+int allocate_inode() {
+    char bitmap[BLOCK_SIZE];
+    bread(DEVICE_IMAGE, 1, bitmap);
+    int i;
+    for (i = 0; i < BLOCK_SIZE; i++) {
+        if(bitmap_getbit(bitmap, i) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+SuperBlock load_superblock() {
+    char buffer[BLOCK_SIZE] = {0};
+    bread(DEVICE_IMAGE, 0, buffer);
+    SuperBlock sblock = *(SuperBlock *) buffer;
+    return sblock;
+}
