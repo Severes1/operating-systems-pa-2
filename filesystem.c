@@ -31,7 +31,7 @@ int mkFS(long deviceSize)
     memcpy(buffer, (void *) &superblock, sizeof(SuperBlock));
     bwrite(DEVICE_IMAGE, 0, buffer);
 
-	return -1;
+	return 0;
 }
 
 /*
