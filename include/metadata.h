@@ -17,18 +17,22 @@ static inline void bitmap_setbit(char *bitmap_, int i_, int val_) {
     bitmap_[(i_ >> 3)] &= ~(1 << (i_ & 0x07));
 }
 
-typedef struct filename { char name[MAX_FILENAME]; } filename_t;
+typedef struct filename { 
+    char name[MAX_FILENAME]; 
+    long index;
+} filename_t;
 
 typedef struct SuperBlock {
-    long num_inodes;
-    long num_data_blocks;
+    long num_inodes_in_use;
+    long max_inodes;
+    long max_data_blocks;
     filename_t filenames[(BLOCK_SIZE - 2 * sizeof(long)) / MAX_FILENAME];  
 } SuperBlock;
 
 typedef struct INode {
     long size;
     long num_blocks;
-    void * blocks[BLOCK_SIZE - 2 * sizeof(long)];
+    long blocks[BLOCK_SIZE - 2 * sizeof(long)];
 } INode;
 
 typedef char * AllocBlock;

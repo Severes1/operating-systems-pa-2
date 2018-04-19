@@ -12,4 +12,6 @@ void init_inode(INode * inode);
 int allocate_inode(); // Returns the index
 int allocate_data_block(); // Returns the index
 SuperBlock load_superblock();
+INode load_inode(long i);
+int get_inode_index(SuperBlock * sblock, char * fileName);
 

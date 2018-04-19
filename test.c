@@ -23,6 +23,8 @@
 int test_mkFS();
 int test_mountFS();
 int test_createFile();
+int test_unmountFS();
+int test_removeFile();
 
 int main() {
 	int ret;
@@ -56,7 +58,7 @@ int main() {
 
 	///////
 
-	ret = unmountFS();
+	ret = test_unmountFS();
 	if(ret != 0) {
 		fprintf(stdout, "%s%s%s%s%s", ANSI_COLOR_BLUE, "TEST unmountFS ", ANSI_COLOR_RED, "FAILED\n", ANSI_COLOR_RESET);
 		return -1;
@@ -65,7 +67,17 @@ int main() {
 
 	///////
 
-	return 0;
+	ret = test_removeFile();
+	if(ret != 0) {
+		fprintf(stdout, "%s%s%s%s%s", ANSI_COLOR_BLUE, "TEST removeFile", ANSI_COLOR_RED, "FAILED\n", ANSI_COLOR_RESET);
+		return -1;
+	}
+	fprintf(stdout, "%s%s%s%s%s", ANSI_COLOR_BLUE, "TEST removeFile", ANSI_COLOR_GREEN, "SUCCESS\n", ANSI_COLOR_RESET);
+
+
+   //////// 
+    
+    return 0;
 }
 
 int test_mkFS() {
@@ -77,13 +89,13 @@ int test_mkFS() {
    
     SuperBlock sblock = *(SuperBlock *) buffer;
     
-    long necessary_space = sblock.num_inodes * (MAX_FILE_SIZE / BLOCK_SIZE);
+    long necessary_space = sblock.max_inodes * (MAX_FILE_SIZE / BLOCK_SIZE);
     //printf("necessary_space = %ld\n", necessary_space);
-    if (sblock.num_data_blocks < necessary_space) {
+    if (sblock.max_data_blocks < necessary_space) {
         return -1;
     }
 
-    if (sblock.num_data_blocks + sblock.num_inodes + 3 > (DEV_SIZE / BLOCK_SIZE)) {
+    if (sblock.max_data_blocks + sblock.max_inodes + 3 > (DEV_SIZE / BLOCK_SIZE)) {
         return -1;
     }
     //printf("num_inodes: %ld \n", sblock.num_inodes);
@@ -100,8 +112,15 @@ int test_mkFS() {
     return 0;
 }
 
+
 int test_mountFS() {
     printf("MOUNTFS TEST NOT IMPLEMENTED\n");
+    return 0;
+}
+
+
+int test_unmountFS() {
+    printf("UNMOUNTFS TEST NOT IMPLEMENTED\n");
     return 0;
 }
 
@@ -114,6 +133,10 @@ int test_createFile() {
     if (ret != -1) {
         // should already exist
         return -1;
-    }
+    } 
     return 0;
+}
+
+int test_removeFile() {
+    return -1;
 }

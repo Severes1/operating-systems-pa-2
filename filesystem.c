@@ -63,10 +63,8 @@ int createFile(char *fileName)
         return -2;
     }
     SuperBlock sblock = load_superblock();
-    for (int i = 0; i < sblock.num_inodes; i++) {
-        if (strcmp(fileName, (char *) &(sblock.filenames[i])) == 0) {
-            return -1;
-        }
+    if (get_inode_index(&sblock, fileName) != -1) {
+        return -1;
     }
     // Update INode allocation
     int inode_index = allocate_inode();
@@ -81,8 +79,9 @@ int createFile(char *fileName)
     // Write INode to disk
     bwrite(DEVICE_IMAGE, 3 + inode_index, (char*) &inode);
     // Update SuperBlock
-    sblock.num_inodes++;
-    memcpy(&sblock.filenames[inode_index], fileName, strlen(fileName));
+    sblock.num_inodes_in_use++;
+    memcpy(&(sblock.filenames[inode_index].name), fileName, strlen(fileName));
+    sblock.filenames[inode_index].index = inode_index;
     bwrite(DEVICE_IMAGE, 0, (char *) &sblock);
     return 0;
 }
@@ -93,7 +92,33 @@ int createFile(char *fileName)
  */
 int removeFile(char *fileName)
 {
-	return -2;
+    // Load Superblock
+    SuperBlock sblock = load_superblock();
+    // Check that file exists
+    long inode_index = get_inode_index(&sblock, fileName);
+    if (inode_index == -1) {
+        return -1;
+    }
+    // Prepare bitmap
+    char bitmap[BLOCK_SIZE];
+    // Update data allocation
+    bread(DEVICE_IMAGE, 2, bitmap);
+    INode inode;
+    bread(DEVICE_IMAGE, 3 + inode_index, (char *) &inode);
+    for (int i = 0; i < inode.num_blocks; i++) {
+        long data_index = inode.blocks[i];
+        bitmap_setbit(bitmap, data_index, 0);
+    }
+    bwrite(DEVICE_IMAGE, 2, bitmap); 
+    // Update inode allocation
+    bread(DEVICE_IMAGE, 1, bitmap);
+    bitmap_setbit(bitmap, inode_index, 0);
+    bwrite(DEVICE_IMAGE, 1, bitmap);
+    // Update superblock
+    sblock.filenames[inode_index].index = -1;
+    sblock.num_inodes_in_use--;
+    bwrite(DEVICE_IMAGE, 0, (char *) &sblock);
+    return 0;
 }
 
 /*
@@ -164,8 +189,8 @@ void init_superblock(SuperBlock * sblock, long disk_size) {
     long max_file_blocks = MAX_FILE_SIZE / BLOCK_SIZE;
     long num_blocks_on_disk = disk_size / BLOCK_SIZE; 
     long max_number_of_files = (num_blocks_on_disk - 3) / (max_file_blocks + 1);
-    sblock->num_inodes = max_number_of_files;
-    sblock->num_data_blocks = num_blocks_on_disk - 3 - max_number_of_files;
+    sblock->max_inodes= max_number_of_files;
+    sblock->max_data_blocks = num_blocks_on_disk - 3 - max_number_of_files;
 }
 
 int allocate_inode() {
@@ -174,10 +199,15 @@ int allocate_inode() {
     int i;
     for (i = 0; i < BLOCK_SIZE; i++) {
         if(bitmap_getbit(bitmap, i) == 0) {
-            return i;
+            break;
         }
     }
-    return -1;
+    if (i == BLOCK_SIZE) {
+        return -1;
+    }
+    bitmap_setbit(bitmap, i, 1);
+    bwrite(DEVICE_IMAGE, 3 + i, bitmap);
+    return 0;
 }
 
 SuperBlock load_superblock() {
@@ -185,4 +215,16 @@ SuperBlock load_superblock() {
     bread(DEVICE_IMAGE, 0, buffer);
     SuperBlock sblock = *(SuperBlock *) buffer;
     return sblock;
+}
+
+/* Returns index of file if it exists, -1 otherwise */
+int get_inode_index(SuperBlock * sblock, char * fileName) {
+    for (int i = 0; i < sblock->num_inodes_in_use; i++) {
+        if (sblock->filenames[i].index == -1) {
+            i--; // Skip deleted files
+        } else if (strcmp(fileName, (char *) &(sblock->filenames[i].name)) == 0) {
+            return i;
+        }
+    }
+    return -1;
 }
