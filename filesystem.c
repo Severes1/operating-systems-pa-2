@@ -7,10 +7,10 @@
  */
 
 #include "include/filesystem.h"		// Headers for the core functionality
-#include "include/auxiliary.h"		// Headers for auxiliary functions
 #include "include/metadata.h"		// Type and structure declaration of the file system
+#include "include/auxiliary.h"		// Headers for auxiliary functions
 #include "include/crc.h"			// Headers for the CRC functionality
-
+#include <string.h>
 
 /*
  * @brief 	Generates the proper file system structure in a storage device, as designed by the student.
@@ -18,6 +18,19 @@
  */
 int mkFS(long deviceSize)
 {
+    SuperBlock superblock;
+    init_superblock(&superblock, deviceSize); 
+    
+    char buffer[BLOCK_SIZE] = {0};
+
+    /* Write zeroes to the allocation bitmap blocks  */
+    bwrite(DEVICE_IMAGE, 1, buffer);
+    bwrite(DEVICE_IMAGE, 2, buffer);
+   
+    /* Write the SuperBlock to the disk */ 
+    memcpy(buffer, (void *) &superblock, sizeof(SuperBlock));
+    bwrite(DEVICE_IMAGE, 0, buffer);
+
 	return -1;
 }
 
@@ -120,3 +133,12 @@ int checkFile(char *fileName)
 {
 	return -2;
 }
+
+void init_superblock(SuperBlock * sblock, long disk_size) {
+    long max_file_blocks = MAX_FILE_SIZE / BLOCK_SIZE;
+    long num_blocks_on_disk = disk_size / BLOCK_SIZE; 
+    long max_number_of_files = (num_blocks_on_disk - 3) / (max_file_blocks + 1);
+    sblock->num_inodes = max_number_of_files;
+    sblock->num_data_blocks = num_blocks_on_disk - 3 - max_number_of_files;
+}
+

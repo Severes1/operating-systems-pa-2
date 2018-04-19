@@ -13,3 +13,18 @@ static inline void bitmap_setbit(char *bitmap_, int i_, int val_) {
   else
     bitmap_[(i_ >> 3)] &= ~(1 << (i_ & 0x07));
 }
+
+typedef struct SuperBlock {
+    long num_inodes;
+    long num_data_blocks;
+} SuperBlock;
+
+typedef struct INode {
+    long size;
+    long num_blocks;
+    void * blocks[];
+} INode;
+
+typedef char * AllocBlock;
+
+

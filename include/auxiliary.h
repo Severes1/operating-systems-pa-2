@@ -6,15 +6,6 @@
  * @date	01/03/2017
  */
 
-typedef struct SuperBlock {
-    int num_inodes;
-    int num_data_blocks;
-} SuperBlock;
+/* Create an empty superblock */
+void init_superblock(SuperBlock * sblock, long disk_size);
 
-typedef struct INode {
-    int num_blocks;
-    void * blocks[];
-    int size;
-} INode;
-
-typedef char[256] AllocBlock;
