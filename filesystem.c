@@ -160,7 +160,7 @@ int writeFile(int fileDescriptor, void *buffer, int numBytes)
 
 /*
  * @brief	Modifies the position of the seek pointer of a file.
- * @return	0 if succes, -1 otherwise.
+ * @return	0 if success, -1 otherwise.
  */
 int lseekFile(int fileDescriptor, long offset, int whence)
 {
@@ -193,6 +193,8 @@ void init_superblock(SuperBlock * sblock, long disk_size) {
     sblock->max_data_blocks = num_blocks_on_disk - 3 - max_number_of_files;
 }
 
+/* Updates the inode allocation bitmap on the disk
+   Returns the index of the first free inode block */
 int allocate_inode() {
     char bitmap[BLOCK_SIZE];
     bread(DEVICE_IMAGE, 1, bitmap);
@@ -206,8 +208,8 @@ int allocate_inode() {
         return -1;
     }
     bitmap_setbit(bitmap, i, 1);
-    bwrite(DEVICE_IMAGE, 3 + i, bitmap);
-    return 0;
+    bwrite(DEVICE_IMAGE, 1, bitmap);
+    return i;
 }
 
 SuperBlock load_superblock() {
@@ -219,12 +221,16 @@ SuperBlock load_superblock() {
 
 /* Returns index of file if it exists, -1 otherwise */
 int get_inode_index(SuperBlock * sblock, char * fileName) {
-    for (int i = 0; i < sblock->num_inodes_in_use; i++) {
+    int i, count;
+    while (count < sblock->num_inodes_in_use) {
         if (sblock->filenames[i].index == -1) {
-            i--; // Skip deleted files
+            i++;
+            continue; // Skip deleted files
         } else if (strcmp(fileName, (char *) &(sblock->filenames[i].name)) == 0) {
-            return i;
+            return sblock->filenames[i].index;
         }
+        count++;
+        i++;
     }
     return -1;
 }

@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "include/metadata.h"
+#include "include/auxiliary.h"
 #include "include/filesystem.h"
 
 // Color definitions for asserts
@@ -69,7 +70,7 @@ int main() {
 
 	ret = test_removeFile();
 	if(ret != 0) {
-		fprintf(stdout, "%s%s%s%s%s", ANSI_COLOR_BLUE, "TEST removeFile", ANSI_COLOR_RED, "FAILED\n", ANSI_COLOR_RESET);
+		fprintf(stdout, "%s%s%s%s%s", ANSI_COLOR_BLUE, "TEST removeFile ", ANSI_COLOR_RED, "FAILED\n", ANSI_COLOR_RESET);
 		return -1;
 	}
 	fprintf(stdout, "%s%s%s%s%s", ANSI_COLOR_BLUE, "TEST removeFile", ANSI_COLOR_GREEN, "SUCCESS\n", ANSI_COLOR_RESET);
@@ -101,6 +102,7 @@ int test_mkFS() {
     //printf("num_inodes: %ld \n", sblock.num_inodes);
     //printf("num_data_blocks: %ld \n", sblock.num_data_blocks);
 
+    // Check that the allocation blocks are all 0
     for (int i = 1; i <= 2; i++) {
         bread(DEVICE_IMAGE, i, buffer);
         char buffer2[BLOCK_SIZE] = {0};
@@ -129,14 +131,56 @@ int test_createFile() {
     if (ret != 0) {
         return -1;
     }
+  
+    SuperBlock sblock = load_superblock();
+    int inode_index = get_inode_index(&sblock, "test.txt");
+
+    char bitmap[BLOCK_SIZE];
+    bread(DEVICE_IMAGE, 1, bitmap);
+
+    // Check that this inode has been correctly allocated
+    if (bitmap_getbit(bitmap, inode_index) == 0) {
+        return -1;
+    }
+
     ret = createFile("test.txt");
     if (ret != -1) {
         // should already exist
         return -1;
     } 
+
     return 0;
 }
 
+// This test must be run after createFile
 int test_removeFile() {
-    return -1;
+    SuperBlock sblock = load_superblock();
+    int inode_index = get_inode_index(&sblock, "test.txt");
+
+    char bitmap[BLOCK_SIZE];
+    bread(DEVICE_IMAGE, 1, bitmap);
+    if (bitmap_getbit(bitmap, inode_index) == 0) {
+        return -1;    
+    }
+    int ret = removeFile("test.txt");
+    if (ret != 0) {
+        return -1;
+    }
+    bread(DEVICE_IMAGE, 1, bitmap);
+    if (bitmap_getbit(bitmap, inode_index) == 1) {
+        return -1;
+    }
+
+    ret = removeFile("test.txt");
+    if (ret != -1) {
+        return -1;    
+    }
+
+    sblock = load_superblock();
+
+    inode_index = get_inode_index(&sblock, "test.txt");
+    if (inode_index != -1) {
+        return -1;    
+    }
+    return 0;
 }
