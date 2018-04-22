@@ -23,6 +23,7 @@ typedef struct filename {
 } filename_t;
 
 typedef struct SuperBlock {
+    long num_crc_blocks;
     long num_inodes_in_use;
     long max_inodes;
     long max_data_blocks;
@@ -37,4 +38,10 @@ typedef struct INode {
 
 typedef char * AllocBlock;
 
-
+/* Contains in-memory data to process a file */
+typedef struct OFT_Entry {
+    int fd;
+    long inode;
+    long offset;
+} 
+OFT_Entry;

@@ -26,6 +26,7 @@ int test_mountFS();
 int test_createFile();
 int test_unmountFS();
 int test_removeFile();
+int test_write();
 
 int main() {
 	int ret;
@@ -73,11 +74,21 @@ int main() {
 		fprintf(stdout, "%s%s%s%s%s", ANSI_COLOR_BLUE, "TEST removeFile ", ANSI_COLOR_RED, "FAILED\n", ANSI_COLOR_RESET);
 		return -1;
 	}
-	fprintf(stdout, "%s%s%s%s%s", ANSI_COLOR_BLUE, "TEST removeFile", ANSI_COLOR_GREEN, "SUCCESS\n", ANSI_COLOR_RESET);
+	fprintf(stdout, "%s%s%s%s%s", ANSI_COLOR_BLUE, "TEST removeFile ", ANSI_COLOR_GREEN, "SUCCESS\n", ANSI_COLOR_RESET);
 
 
    //////// 
     
+    ret = test_write();
+	if(ret != 0) {
+		fprintf(stdout, "%s%s%s%s%s", ANSI_COLOR_BLUE, "TEST write ", ANSI_COLOR_RED, "FAILED\n", ANSI_COLOR_RESET);
+		return -1;
+	}
+	fprintf(stdout, "%s%s%s%s%s", ANSI_COLOR_BLUE, "TEST write ", ANSI_COLOR_GREEN, "SUCCESS\n", ANSI_COLOR_RESET);
+
+
+   //////// 
+ 
     return 0;
 }
 
@@ -116,8 +127,7 @@ int test_mkFS() {
 
 
 int test_mountFS() {
-    printf("MOUNTFS TEST NOT IMPLEMENTED\n");
-    return 0;
+    return mountFS();
 }
 
 
@@ -180,6 +190,32 @@ int test_removeFile() {
 
     inode_index = get_inode_index(&sblock, "test.txt");
     if (inode_index != -1) {
+        return -1;    
+    }
+    return 0;
+}
+
+// Assume mount happened
+int test_write() {
+    createFile("test.txt");
+    int fd = openFile("test.txt");
+    if (fd == -1) {
+        return -1;    
+    }
+    char * buffer = "Hello world";
+    int ret = writeFile(fd, buffer, 12);
+    if (ret < 0) {
+        return -1;    
+    }
+
+    char buffer2[12];
+    ret = readFile(fd, buffer2, 12);
+    if (ret < 0) {
+        return -1;    
+    }
+    printf("%s\n", buffer2);
+    closeFile(fd);
+    if (strcmp(buffer, buffer2) != 0) {
         return -1;    
     }
     return 0;

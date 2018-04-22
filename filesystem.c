@@ -11,6 +11,14 @@
 #include "include/metadata.h"		// Type and structure declaration of the file system
 #include "include/auxiliary.h"		// Headers for auxiliary functions
 #include <string.h>
+#include <limits.h>
+#include <stdlib.h>
+
+#define MAX_NUMBER_OF_FILES 10
+OFT_Entry * OPEN_FILE_TABLE[MAX_NUMBER_OF_FILES] = {0}; // Pointers to structures OFT_Entry
+
+int INODE_START = -1;
+int DATA_BLOCK_START = -1;
 
 /*
  * @brief 	Generates the proper file system structure in a storage device, as designed by the student.
@@ -40,7 +48,15 @@ int mkFS(long deviceSize)
  */
 int mountFS(void)
 {
-	return -1;
+
+    SuperBlock sblock = load_superblock();
+
+    INODE_START = 3;
+    printf("Mounting the file system!\n");
+    DATA_BLOCK_START = 3 + sblock.max_inodes;
+    printf("%d\n", DATA_BLOCK_START);
+
+    return 0;
 }
 
 /*
@@ -77,7 +93,7 @@ int createFile(char *fileName)
     inode.size = 0;
     inode.num_blocks = 0;
     // Write INode to disk
-    bwrite(DEVICE_IMAGE, 3 + inode_index, (char*) &inode);
+    bwrite(DEVICE_IMAGE, INODE_START + inode_index, (char*) &inode);
     // Update SuperBlock
     sblock.num_inodes_in_use++;
     memcpy(&(sblock.filenames[inode_index].name), fileName, strlen(fileName));
@@ -104,7 +120,7 @@ int removeFile(char *fileName)
     // Update data allocation
     bread(DEVICE_IMAGE, 2, bitmap);
     INode inode;
-    bread(DEVICE_IMAGE, 3 + inode_index, (char *) &inode);
+    bread(DEVICE_IMAGE, INODE_START + inode_index, (char *) &inode);
     for (int i = 0; i < inode.num_blocks; i++) {
         long data_index = inode.blocks[i];
         bitmap_setbit(bitmap, data_index, 0);
@@ -127,7 +143,32 @@ int removeFile(char *fileName)
  */
 int openFile(char *fileName)
 {
-	return -2;
+    // TODO Check for file integrity
+    SuperBlock sblock = load_superblock();
+    int inode_index = get_inode_index(&sblock, fileName);
+    if (inode_index == -1) {
+        return -1;
+    }
+    
+    // Make a file descriptor and return it
+    int i;
+    for (i = 0; i < MAX_NUMBER_OF_FILES; i++) {
+        if (OPEN_FILE_TABLE[i] == NULL) {
+            break;    
+        }
+    }
+
+    if (i == MAX_NUMBER_OF_FILES) {
+        return -1;    
+    }
+
+    OPEN_FILE_TABLE[i] = malloc(sizeof(OFT_Entry));
+    
+    OPEN_FILE_TABLE[i]->fd     = i;
+    OPEN_FILE_TABLE[i]->inode  = inode_index;
+    OPEN_FILE_TABLE[i]->offset = 0;
+
+	return i;
 }
 
 /*
@@ -136,7 +177,12 @@ int openFile(char *fileName)
  */
 int closeFile(int fileDescriptor)
 {
-	return -1;
+    if (fileDescriptor < 0 || OPEN_FILE_TABLE[fileDescriptor] == NULL) {
+        return -1;    
+    }
+    free(OPEN_FILE_TABLE[fileDescriptor]);
+    OPEN_FILE_TABLE[fileDescriptor] = NULL;
+	return 0;
 }
 
 /*
@@ -145,7 +191,33 @@ int closeFile(int fileDescriptor)
  */
 int readFile(int fileDescriptor, void *buffer, int numBytes)
 {
-	return -1;
+    if (fileDescriptor < 0 || OPEN_FILE_TABLE[fileDescriptor] == NULL) {
+        return -1;
+    }
+    OFT_Entry oft = *(OPEN_FILE_TABLE[fileDescriptor]);
+   
+    INode inode;
+    bread(DEVICE_IMAGE, INODE_START + oft.inode, (char *) &inode);
+
+    int bytes_read = 0;
+
+	long current_block = oft.offset / BLOCK_SIZE;
+    
+    char temp_buffer[BLOCK_SIZE] = {0};
+    
+    if (numBytes + oft.offset > inode.size) {
+        numBytes = inode.size - oft.offset;    
+    }
+
+    while (bytes_read < numBytes) {
+        int block_index = inode.blocks[current_block];
+        bread(DEVICE_IMAGE, DATA_BLOCK_START + block_index, temp_buffer);
+        memcpy(buffer + bytes_read, temp_buffer, numBytes - bytes_read < BLOCK_SIZE ? numBytes - bytes_read : BLOCK_SIZE);
+        bytes_read += BLOCK_SIZE;
+        current_block++;
+    }
+     
+    return numBytes;
 }
 
 /*
@@ -154,7 +226,50 @@ int readFile(int fileDescriptor, void *buffer, int numBytes)
  */
 int writeFile(int fileDescriptor, void *buffer, int numBytes)
 {
-	return -1;
+    printf("%d\n", DATA_BLOCK_START);
+    // Check that file is open
+    if (fileDescriptor < 0 || OPEN_FILE_TABLE[fileDescriptor] == NULL) {
+        return -1;   
+    }
+    // Load entry 
+    OFT_Entry oft = *(OPEN_FILE_TABLE[fileDescriptor]);
+    INode inode;
+    bread(DEVICE_IMAGE, INODE_START + oft.inode, (char *) &inode);
+    // Determine which block to start writing to
+    long current_block = oft.offset / BLOCK_SIZE;
+    // Write from buffer to file numBytes. If this is past the end of the file, extend the file. Update INode and Data
+    int bytes_written = 0;
+    char temp_buffer[BLOCK_SIZE] = {0};
+    int block_index;
+    while (bytes_written < numBytes) {
+        if (current_block >= inode.num_blocks) {
+            // Allocate a new block
+            block_index = allocate_data_block(); 
+            inode.num_blocks++;
+            inode.blocks[current_block] = block_index;
+            inode.size += numBytes - bytes_written < BLOCK_SIZE ? numBytes - bytes_written : BLOCK_SIZE;
+            char temp_temp_buffer[BLOCK_SIZE];
+            bwrite(DEVICE_IMAGE, DATA_BLOCK_START + block_index, temp_temp_buffer);
+        } else {
+            block_index = inode.blocks[current_block];
+        }
+        if (numBytes - bytes_written < BLOCK_SIZE) {
+            bread(DEVICE_IMAGE, DATA_BLOCK_START + block_index, temp_buffer);
+        }
+        memcpy(temp_buffer, buffer, numBytes - bytes_written < BLOCK_SIZE ? numBytes - bytes_written : BLOCK_SIZE);
+        printf("Writing: %s in block: %d\n", temp_buffer, block_index);
+        bwrite(DEVICE_IMAGE, DATA_BLOCK_START + block_index, temp_buffer);
+        bytes_written += BLOCK_SIZE;
+        current_block++;
+    }
+
+    // Write INODE
+    bwrite(DEVICE_IMAGE, INODE_START + oft.inode, (char *) &inode);
+
+    // Update CRC
+    // TODO
+    // Return number of bytes properly written.
+	return numBytes;
 }
 
 
@@ -164,7 +279,31 @@ int writeFile(int fileDescriptor, void *buffer, int numBytes)
  */
 int lseekFile(int fileDescriptor, long offset, int whence)
 {
-	return -1;
+
+    if (fileDescriptor < 0 || OPEN_FILE_TABLE[fileDescriptor] == NULL) {
+        return -1;
+    }
+
+    OFT_Entry oft = *(OPEN_FILE_TABLE[fileDescriptor]);
+
+    long new_seek_pos;
+    INode inode;
+    switch (whence) {
+        case FS_SEEK_CUR:
+            new_seek_pos = oft.offset;
+            break;
+        case FS_SEEK_BEGIN:
+            new_seek_pos = 0; 
+            break;
+        case FS_SEEK_END:
+            bread(DEVICE_IMAGE, INODE_START + oft.inode, (char *) &inode);
+            new_seek_pos = inode.size;
+            break;
+        default:
+            return -1;
+    }
+
+    return new_seek_pos + offset;
 }
 
 /*
@@ -188,9 +327,24 @@ int checkFile(char *fileName)
 void init_superblock(SuperBlock * sblock, long disk_size) {
     long max_file_blocks = MAX_FILE_SIZE / BLOCK_SIZE;
     long num_blocks_on_disk = disk_size / BLOCK_SIZE; 
-    long max_number_of_files = (num_blocks_on_disk - 3) / (max_file_blocks + 1);
+    long num_crc_blocks = (2 * num_blocks_on_disk) / (BLOCK_SIZE + 2); // Assuming using CRC16
+    long max_number_of_files = (num_blocks_on_disk - num_crc_blocks - 3) / (max_file_blocks + 1);
+    sblock->num_crc_blocks = num_crc_blocks;
     sblock->max_inodes= max_number_of_files;
     sblock->max_data_blocks = num_blocks_on_disk - 3 - max_number_of_files;
+}
+
+int first_zero(char * bitmap, int length) {
+    int i;
+    for (i = 0; i < length; i++) {
+        if(bitmap_getbit(bitmap, i) == 0) {
+            break;
+        }
+    }
+    if (i == length) {
+        return -1;
+    }
+    return i;
 }
 
 /* Updates the inode allocation bitmap on the disk
@@ -198,17 +352,18 @@ void init_superblock(SuperBlock * sblock, long disk_size) {
 int allocate_inode() {
     char bitmap[BLOCK_SIZE];
     bread(DEVICE_IMAGE, 1, bitmap);
-    int i;
-    for (i = 0; i < BLOCK_SIZE; i++) {
-        if(bitmap_getbit(bitmap, i) == 0) {
-            break;
-        }
-    }
-    if (i == BLOCK_SIZE) {
-        return -1;
-    }
+    int i = first_zero(bitmap, BLOCK_SIZE);
     bitmap_setbit(bitmap, i, 1);
     bwrite(DEVICE_IMAGE, 1, bitmap);
+    return i;
+}
+
+int allocate_data_block() {
+    char bitmap[BLOCK_SIZE];
+    bread(DEVICE_IMAGE, 2, bitmap);
+    int i = first_zero(bitmap, BLOCK_SIZE);
+    bitmap_setbit(bitmap, i, 1);
+    bwrite(DEVICE_IMAGE, 2, bitmap);
     return i;
 }
 
