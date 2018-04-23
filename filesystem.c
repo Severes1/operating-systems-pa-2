@@ -367,6 +367,8 @@ int checkFile(char *fileName)
 	return 0;
 }
 
+/* Calculates how many files can fit in  given disk_size,
+   and initializes the superblock with the corresponding values */
 void init_superblock(SuperBlock * sblock, long disk_size) {
     long max_file_blocks = MAX_FILE_SIZE / BLOCK_SIZE;
     long num_blocks_on_disk = disk_size / BLOCK_SIZE; 
@@ -377,6 +379,7 @@ void init_superblock(SuperBlock * sblock, long disk_size) {
     sblock->max_data_blocks = num_blocks_on_disk - 3 - max_number_of_files;
 }
 
+/* Finds the First zero in a bitmap. Used by both allocate_ functions */
 int first_zero(char * bitmap, int length) {
     int i;
     for (i = 0; i < length; i++) {
@@ -401,6 +404,8 @@ int allocate_inode() {
     return i;
 }
 
+/* Updates the data block allocation bitmap on the disk
+   Returns the index of the first free data block */
 int allocate_data_block() {
     char bitmap[BLOCK_SIZE];
     bread(DEVICE_IMAGE, 2, bitmap);
@@ -410,6 +415,10 @@ int allocate_data_block() {
     return i;
 }
 
+/* 
+ * Helper function to load the superblock.
+ * This could be used to cache the superblock in memory
+ */
 SuperBlock load_superblock() {
     char buffer[BLOCK_SIZE] = {0};
     bread(DEVICE_IMAGE, 0, buffer);
@@ -451,8 +460,7 @@ int bwrite_with_crc(char *deviceName, int blockNumber, char *buffer) {
     
     printf("Writing block: %d\n", blockNumber);
 
-     // Write CRC hash
-    //memcpy(crc_buffer + index, &new_crc, sizeof(uint16_t));
+    // Write CRC hash
     crc_buffer[index / 2] = new_crc;
     if (bwrite(DEVICE_IMAGE, 3 + crc_block, (char *) crc_buffer) != 0) {
         return -2;

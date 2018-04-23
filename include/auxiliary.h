@@ -6,13 +6,22 @@
  * @date	01/03/2017
  */
 
-/* Create an empty superblock */
+/* Calculates how many files can fit in  given disk_size,
+   and initializes the superblock with the corresponding values */
 void init_superblock(SuperBlock * sblock, long disk_size);
-void init_inode(INode * inode);
+
+/* Updates the inode allocation bitmap on the disk
+   Returns the index of the first free inode block */
 int allocate_inode(); // Returns the index
+
+/* Updates the data block allocation bitmap on the disk
+   Returns the index of the first free data block */
 int allocate_data_block(); // Returns the index
+
+/* Helper function to load the superblock. */
 SuperBlock load_superblock();
-INode load_inode(long i);
+
+/* Returns index of file if it exists, -1 otherwise */
 int get_inode_index(SuperBlock * sblock, char * fileName);
 
 /* Wrapper function that hashes every written block to check file integrity */
