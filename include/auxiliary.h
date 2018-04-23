@@ -15,3 +15,5 @@ SuperBlock load_superblock();
 INode load_inode(long i);
 int get_inode_index(SuperBlock * sblock, char * fileName);
 
+/* Wrapper function that hashes every written block to check file integrity */
+int bwrite_with_crc(char *deviceName, int blockNumber, char *buffer);

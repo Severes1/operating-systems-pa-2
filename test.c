@@ -28,6 +28,7 @@ int test_unmountFS();
 int test_removeFile();
 int test_write();
 int test_big_write();
+int test_checkFile();
 
 int main() {
 	int ret;
@@ -96,6 +97,16 @@ int main() {
 		return -1;
 	}
 	fprintf(stdout, "%s%s%s%s%s", ANSI_COLOR_BLUE, "TEST big write ", ANSI_COLOR_GREEN, "SUCCESS\n", ANSI_COLOR_RESET);
+
+
+   //////// 
+ 
+   ret = test_checkFile();
+	if(ret != 0) {
+		fprintf(stdout, "%s%s%s%s%s", ANSI_COLOR_BLUE, "TEST checkFile ", ANSI_COLOR_RED, "FAILED\n", ANSI_COLOR_RESET);
+		return -1;
+	}
+	fprintf(stdout, "%s%s%s%s%s", ANSI_COLOR_BLUE, "TEST checkFile ", ANSI_COLOR_GREEN, "SUCCESS\n", ANSI_COLOR_RESET);
 
 
    //////// 
@@ -273,4 +284,13 @@ int test_big_write() {
     }
     return 0;
 
+}
+
+// Perform directly after test_big_write
+int test_checkFile() {
+    int ret = checkFile("test.txt");    
+    if (ret != 0) {
+        return -1;    
+    }
+    return 0;
 }

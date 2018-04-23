@@ -32,12 +32,12 @@ int mkFS(long deviceSize)
     char buffer[BLOCK_SIZE] = {0};
 
     /* Write zeroes to the allocation bitmap blocks  */
-    bwrite(DEVICE_IMAGE, 1, buffer);
-    bwrite(DEVICE_IMAGE, 2, buffer);
+    bwrite_with_crc(DEVICE_IMAGE, 1, buffer);
+    bwrite_with_crc(DEVICE_IMAGE, 2, buffer);
    
     /* Write the SuperBlock to the disk */ 
     memcpy(buffer, (void *) &superblock, sizeof(SuperBlock));
-    bwrite(DEVICE_IMAGE, 0, buffer);
+    bwrite_with_crc(DEVICE_IMAGE, 0, buffer);
 
 	return 0;
 }
@@ -50,8 +50,7 @@ int mountFS(void)
 {
 
     SuperBlock sblock = load_superblock();
-
-    INODE_START = 3;
+    INODE_START = 3 + sblock.num_crc_blocks;
     DATA_BLOCK_START = 3 + sblock.max_inodes;
 
     return 0;
@@ -63,7 +62,12 @@ int mountFS(void)
  */
 int unmountFS(void)
 {
-	return -1;
+    if (INODE_START == -1) {
+        return -1;
+    }
+	INODE_START = -1;
+    DATA_BLOCK_START = -1;
+    return 0;
 }
 
 /*
@@ -91,12 +95,12 @@ int createFile(char *fileName)
     inode.size = 0;
     inode.num_blocks = 0;
     // Write INode to disk
-    bwrite(DEVICE_IMAGE, INODE_START + inode_index, (char*) &inode);
+    bwrite_with_crc(DEVICE_IMAGE, INODE_START + inode_index, (char*) &inode);
     // Update SuperBlock
     sblock.num_inodes_in_use++;
     memcpy(&(sblock.filenames[inode_index].name), fileName, strlen(fileName));
     sblock.filenames[inode_index].index = inode_index;
-    bwrite(DEVICE_IMAGE, 0, (char *) &sblock);
+    bwrite_with_crc(DEVICE_IMAGE, 0, (char *) &sblock);
     return 0;
 }
 
@@ -123,15 +127,15 @@ int removeFile(char *fileName)
         long data_index = inode.blocks[i];
         bitmap_setbit(bitmap, data_index, 0);
     }
-    bwrite(DEVICE_IMAGE, 2, bitmap); 
+    bwrite_with_crc(DEVICE_IMAGE, 2, bitmap); 
     // Update inode allocation
     bread(DEVICE_IMAGE, 1, bitmap);
     bitmap_setbit(bitmap, inode_index, 0);
-    bwrite(DEVICE_IMAGE, 1, bitmap);
+    bwrite_with_crc(DEVICE_IMAGE, 1, bitmap);
     // Update superblock
     sblock.filenames[inode_index].index = -1;
     sblock.num_inodes_in_use--;
-    bwrite(DEVICE_IMAGE, 0, (char *) &sblock);
+    bwrite_with_crc(DEVICE_IMAGE, 0, (char *) &sblock);
     return 0;
 }
 
@@ -245,22 +249,22 @@ int writeFile(int fileDescriptor, void *buffer, int numBytes)
             inode.num_blocks++;
             inode.blocks[current_block] = block_index;
             inode.size += numBytes - bytes_written < BLOCK_SIZE ? numBytes - bytes_written : BLOCK_SIZE;
-            char temp_temp_buffer[BLOCK_SIZE];
-            bwrite(DEVICE_IMAGE, DATA_BLOCK_START + block_index, temp_temp_buffer);
+            memset(temp_buffer, 0, BLOCK_SIZE); 
         } else {
             block_index = inode.blocks[current_block];
+             if (numBytes - bytes_written < BLOCK_SIZE) {
+                 bread(DEVICE_IMAGE, DATA_BLOCK_START + block_index, temp_buffer);
+             }
         }
-        if (numBytes - bytes_written < BLOCK_SIZE) {
-            bread(DEVICE_IMAGE, DATA_BLOCK_START + block_index, temp_buffer);
-        }
+       
         memcpy(temp_buffer, buffer + bytes_written, numBytes - bytes_written < BLOCK_SIZE ? numBytes - bytes_written : BLOCK_SIZE);
-        bwrite(DEVICE_IMAGE, DATA_BLOCK_START + block_index, temp_buffer);
+        bwrite_with_crc(DEVICE_IMAGE, DATA_BLOCK_START + block_index, temp_buffer);
         bytes_written += BLOCK_SIZE;
         current_block++;
     }
 
     // Write INODE
-    bwrite(DEVICE_IMAGE, INODE_START + oft.inode, (char *) &inode);
+    bwrite_with_crc(DEVICE_IMAGE, INODE_START + oft.inode, (char *) &inode);
 
     // Update CRC
     // TODO
@@ -317,7 +321,46 @@ int checkFS(void)
  */
 int checkFile(char *fileName)
 {
-	return -2;
+    // Read all of the blocks, and check that the CRC matches
+    SuperBlock sblock = load_superblock();
+
+    int inode_index = get_inode_index(&sblock, fileName);
+
+    INode inode;
+    bread(DEVICE_IMAGE, INODE_START + inode_index, (char *) &inode);
+
+    int i;
+    char data_buffer[BLOCK_SIZE];
+    int loaded_crc = -1;
+    uint16_t crc_buffer[BLOCK_SIZE / 2];
+    for (i = 0; i < inode.num_blocks; i++) {
+        int blockNumber = DATA_BLOCK_START + inode.blocks[i];
+        if (bread(DEVICE_IMAGE, blockNumber, data_buffer) == -1) {
+            return -2;   
+        }
+
+        uint16_t new_crc = CRC16((unsigned char *) data_buffer, BLOCK_SIZE, 0);
+
+        long crc_block = (blockNumber * 2)/ BLOCK_SIZE;
+        long index = (blockNumber * 2) % BLOCK_SIZE;
+        if (crc_block != loaded_crc) {
+            if (bread(DEVICE_IMAGE, 3 + crc_block, (char *) crc_buffer) == -1) {
+                return -2;    
+            }
+            loaded_crc = crc_block;
+        }
+
+        uint16_t prev_crc = crc_buffer[index / 2];
+
+
+        printf("Checking block: %d, which corresponds to crc_block: %ld and index: %ld prev: %d new: %d\n", blockNumber, crc_block,
+        index, prev_crc, new_crc);
+
+        if (prev_crc != new_crc) {
+            return -1;    
+        }
+    } 
+	return 0;
 }
 
 void init_superblock(SuperBlock * sblock, long disk_size) {
@@ -350,7 +393,7 @@ int allocate_inode() {
     bread(DEVICE_IMAGE, 1, bitmap);
     int i = first_zero(bitmap, BLOCK_SIZE);
     bitmap_setbit(bitmap, i, 1);
-    bwrite(DEVICE_IMAGE, 1, bitmap);
+    bwrite_with_crc(DEVICE_IMAGE, 1, bitmap);
     return i;
 }
 
@@ -359,7 +402,7 @@ int allocate_data_block() {
     bread(DEVICE_IMAGE, 2, bitmap);
     int i = first_zero(bitmap, BLOCK_SIZE);
     bitmap_setbit(bitmap, i, 1);
-    bwrite(DEVICE_IMAGE, 2, bitmap);
+    bwrite_with_crc(DEVICE_IMAGE, 2, bitmap);
     return i;
 }
 
@@ -384,4 +427,32 @@ int get_inode_index(SuperBlock * sblock, char * fileName) {
         i++;
     }
     return -1;
+}
+
+/* Returns 0 on success and -1 for failed write and -2 for failed CRC */
+int bwrite_with_crc(char *deviceName, int blockNumber, char *buffer) {
+    // Perform the write operation
+    if (bwrite(deviceName, blockNumber, buffer) != 0) {
+        return -1;
+    }
+    // Locate CRC hash
+    long crc_block = (blockNumber * 2)/ BLOCK_SIZE;
+    long index = (blockNumber * 2) % BLOCK_SIZE;
+
+    // Read previous CRC hash
+    uint16_t crc_buffer[BLOCK_SIZE / 2];
+    bread(DEVICE_IMAGE, 3 + crc_block, (char *) crc_buffer);
+    // Compute CRC hash
+    uint16_t new_crc = CRC16((unsigned char *) buffer, BLOCK_SIZE, 0);
+
+    printf("Writing block: %d, which corresponds to crc_block: %ld and index: %ld with value: %d\n", blockNumber, crc_block,
+        index, new_crc);
+
+     // Write CRC hash
+    //memcpy(crc_buffer + index, &new_crc, sizeof(uint16_t));
+    crc_buffer[index / 2] = new_crc;
+    if (bwrite(DEVICE_IMAGE, 3 + crc_block, (char *) crc_buffer) != 0) {
+        return -2;
+    }
+    return 0;
 }
