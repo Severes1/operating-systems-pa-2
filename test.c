@@ -11,6 +11,7 @@
 #include "include/metadata.h"
 #include "include/auxiliary.h"
 #include "include/filesystem.h"
+#include <stdlib.h>
 
 // Color definitions for asserts
 #define ANSI_COLOR_RESET   "\x1b[0m"
@@ -18,8 +19,10 @@
 #define ANSI_COLOR_GREEN   "\x1b[32m"
 #define ANSI_COLOR_BLUE   "\x1b[34m"
 
-#define N_BLOCKS	2055           // Number of blocks in the device
+#define N_BLOCKS	2055                    // Number of blocks in the device
 #define DEV_SIZE 	N_BLOCKS * BLOCK_SIZE	// Device size, in bytes
+
+#define TEST_FILE "paella.jpg"
 
 int test_mkFS();
 int test_mountFS();
@@ -29,6 +32,10 @@ int test_removeFile();
 int test_write();
 int test_big_write();
 int test_checkFile();
+int test_checkFS();
+int realtest(char * in_file);
+
+int test_interleave();
 
 int main() {
 	int ret;
@@ -111,7 +118,41 @@ int main() {
 
    //////// 
  
+  ret = realtest(TEST_FILE);
+	if(ret != 0) {
+		fprintf(stdout, "%s%s%s%s%s", ANSI_COLOR_BLUE, "TEST realTest ", ANSI_COLOR_RED, "FAILED\n", ANSI_COLOR_RESET);
+		return -1;
+	}
+	fprintf(stdout, "%s%s%s%s%s", ANSI_COLOR_BLUE, "TEST realTest ", ANSI_COLOR_GREEN, "SUCCESS\n",
+    ANSI_COLOR_RESET);
 
+
+   //////// 
+   ret = test_interleave();
+
+	if(ret != 0) {
+		fprintf(stdout, "%s%s%s%s%s", ANSI_COLOR_BLUE, "TEST interleave ", ANSI_COLOR_RED, "FAILED\n", ANSI_COLOR_RESET);
+		return -1;
+	}
+
+
+	fprintf(stdout, "%s%s%s%s%s", ANSI_COLOR_BLUE, "TEST interleave ", ANSI_COLOR_GREEN, "SUCCESS\n", ANSI_COLOR_RESET);
+
+
+   //////// 
+  
+   ret = test_checkFS();
+	if(ret != 0) {
+		fprintf(stdout, "%s%s%s%s%s", ANSI_COLOR_BLUE, "TEST checkFS ", ANSI_COLOR_RED, "FAILED\n", ANSI_COLOR_RESET);
+		return -1;
+	}
+	fprintf(stdout, "%s%s%s%s%s", ANSI_COLOR_BLUE, "TEST checkFS ", ANSI_COLOR_GREEN, "SUCCESS\n", ANSI_COLOR_RESET);
+
+
+   //////// 
+ 
+
+ 
     return 0;
 }
 
@@ -231,6 +272,7 @@ int test_write() {
         return -1;    
     }
 
+    lseekFile(fd, 0, FS_SEEK_BEGIN);
     char buffer2[12];
     ret = readFile(fd, buffer2, 12);
     if (ret < 0) {
@@ -258,7 +300,8 @@ int test_big_write() {
     if (ret < 0) {
         return -1;    
     }
-
+    
+    lseekFile(fd, 0, FS_SEEK_BEGIN);
     char buffer2[2 * BLOCK_SIZE];
     ret = readFile(fd, buffer2, 2 * BLOCK_SIZE);
     if (ret < 0) {
@@ -292,5 +335,76 @@ int test_checkFile() {
     if (ret != 0) {
         return -1;    
     }
+    return 0;
+}
+
+
+// Perform directly after test_big_write
+int test_checkFS() {
+    int ret = checkFS(); 
+    if (ret != 0) {
+        return -1;    
+    }
+    return 0;
+}
+
+
+
+/* Write a large file to disk */
+int realtest(char * in_file) {
+    createFile("realtest.txt");
+    int fd = openFile("realtest.txt");
+
+    FILE *f = fopen(in_file, "rb");
+    fseek(f, 0, SEEK_END);
+    long fsize = ftell(f);
+    fseek(f, 0, SEEK_SET);  //same as rewind(f);
+
+    char *string = malloc(fsize + 1);
+    fread(string, fsize, 1, f);
+    fclose(f);
+
+    string[fsize] = 0;
+    writeFile(fd, string, fsize);
+    free(string);
+    
+    close(fd);
+
+    return 0;
+}
+
+int test_interleave() {
+    createFile("F1");
+    createFile("F2");
+    int fd1 = openFile("F1");
+    int fd2 = openFile("F2");
+
+    char buff1[BLOCK_SIZE];
+    memset(buff1, 'a', BLOCK_SIZE);
+
+    char buff2[BLOCK_SIZE];
+    memset(buff2, 'b', BLOCK_SIZE);
+
+    writeFile(fd1, buff1, BLOCK_SIZE);
+
+
+    writeFile(fd2, buff2, BLOCK_SIZE);
+    memset(buff1, 'a', BLOCK_SIZE);
+    writeFile(fd1, buff1, BLOCK_SIZE);
+    writeFile(fd2, buff2, BLOCK_SIZE);
+    closeFile(fd1);
+    closeFile(fd2);
+
+    removeFile("F1");
+    createFile("F3");
+
+    int fd3 = openFile("F3");
+
+    char buff3[BLOCK_SIZE];
+    memset(buff3, 'c', BLOCK_SIZE);
+    
+    writeFile(fd3, buff3, BLOCK_SIZE);
+
+    closeFile(fd3);
     return 0;
 }

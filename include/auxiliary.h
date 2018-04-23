@@ -17,3 +17,6 @@ int get_inode_index(SuperBlock * sblock, char * fileName);
 
 /* Wrapper function that hashes every written block to check file integrity */
 int bwrite_with_crc(char *deviceName, int blockNumber, char *buffer);
+
+/* Checks the integrity of the given block */
+int check_crc(int blockNumber);

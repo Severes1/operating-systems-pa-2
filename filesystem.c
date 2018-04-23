@@ -218,7 +218,8 @@ int readFile(int fileDescriptor, void *buffer, int numBytes)
         bytes_read += BLOCK_SIZE;
         current_block++;
     }
-     
+    
+    oft.offset += numBytes;
     return numBytes;
 }
 
@@ -233,22 +234,24 @@ int writeFile(int fileDescriptor, void *buffer, int numBytes)
         return -1;   
     }
     // Load entry 
-    OFT_Entry oft = *(OPEN_FILE_TABLE[fileDescriptor]);
+    OFT_Entry * oft = OPEN_FILE_TABLE[fileDescriptor];
     INode inode;
-    bread(DEVICE_IMAGE, INODE_START + oft.inode, (char *) &inode);
+    bread(DEVICE_IMAGE, INODE_START + oft->inode, (char *) &inode);
     // Determine which block to start writing to
-    long current_block = oft.offset / BLOCK_SIZE;
+    long current_block = oft->offset / BLOCK_SIZE;
+    printf("Offset: %ld Current_block: %ld\n", oft->offset, current_block);
     // Write from buffer to file numBytes. If this is past the end of the file, extend the file. Update INode and Data
     int bytes_written = 0;
     char temp_buffer[BLOCK_SIZE] = {0};
     int block_index;
     while (bytes_written < numBytes) {
+        int bytes_this_loop = numBytes - bytes_written < BLOCK_SIZE ? numBytes - bytes_written : BLOCK_SIZE;
         if (current_block >= inode.num_blocks) {
             // Allocate a new block
             block_index = allocate_data_block(); 
             inode.num_blocks++;
             inode.blocks[current_block] = block_index;
-            inode.size += numBytes - bytes_written < BLOCK_SIZE ? numBytes - bytes_written : BLOCK_SIZE;
+            inode.size += bytes_this_loop; 
             memset(temp_buffer, 0, BLOCK_SIZE); 
         } else {
             block_index = inode.blocks[current_block];
@@ -257,19 +260,21 @@ int writeFile(int fileDescriptor, void *buffer, int numBytes)
              }
         }
        
-        memcpy(temp_buffer, buffer + bytes_written, numBytes - bytes_written < BLOCK_SIZE ? numBytes - bytes_written : BLOCK_SIZE);
+        memcpy(temp_buffer, buffer + bytes_written, bytes_this_loop);
         bwrite_with_crc(DEVICE_IMAGE, DATA_BLOCK_START + block_index, temp_buffer);
         bytes_written += BLOCK_SIZE;
         current_block++;
     }
 
     // Write INODE
-    bwrite_with_crc(DEVICE_IMAGE, INODE_START + oft.inode, (char *) &inode);
+    bwrite_with_crc(DEVICE_IMAGE, INODE_START + oft->inode, (char *) &inode);
 
     // Update CRC
     // TODO
     // Return number of bytes properly written.
-	return numBytes;
+    oft->offset += numBytes;
+	printf("numBytes: %d, offset: %ld\n", numBytes, oft->offset);
+    return numBytes;
 }
 
 
@@ -284,26 +289,27 @@ int lseekFile(int fileDescriptor, long offset, int whence)
         return -1;
     }
 
-    OFT_Entry oft = *(OPEN_FILE_TABLE[fileDescriptor]);
+    OFT_Entry * oft = OPEN_FILE_TABLE[fileDescriptor];
 
     long new_seek_pos;
     INode inode;
     switch (whence) {
         case FS_SEEK_CUR:
-            new_seek_pos = oft.offset;
+            new_seek_pos = oft->offset;
             break;
         case FS_SEEK_BEGIN:
             new_seek_pos = 0; 
             break;
         case FS_SEEK_END:
-            bread(DEVICE_IMAGE, INODE_START + oft.inode, (char *) &inode);
+            bread(DEVICE_IMAGE, INODE_START + oft->inode, (char *) &inode);
             new_seek_pos = inode.size;
             break;
         default:
             return -1;
     }
-
-    return new_seek_pos + offset;
+    
+    oft->offset = new_seek_pos + offset;
+    return oft->offset;
 }
 
 /*
@@ -312,7 +318,27 @@ int lseekFile(int fileDescriptor, long offset, int whence)
  */
 int checkFS(void)
 {
-	return -2;
+    // Check superblock
+    int ret;
+    if ((ret = check_crc(0)) != 0) {
+        return ret;    
+    }
+    
+    // Check Allocation blocks
+    if ((ret = check_crc(1)) != 0) {
+        return ret;    
+    }
+    if ((ret = check_crc(2)) != 0) {
+        return ret;    
+    } 
+   
+    // Check INodes
+    for (int i = INODE_START; i < DATA_BLOCK_START; i++) {
+        if ((ret = check_crc(i)) != 0) {
+            return ret;    
+        } 
+    }
+	return 0;
 }
 
 /*
@@ -330,34 +356,12 @@ int checkFile(char *fileName)
     bread(DEVICE_IMAGE, INODE_START + inode_index, (char *) &inode);
 
     int i;
-    char data_buffer[BLOCK_SIZE];
-    int loaded_crc = -1;
-    uint16_t crc_buffer[BLOCK_SIZE / 2];
+   
     for (i = 0; i < inode.num_blocks; i++) {
         int blockNumber = DATA_BLOCK_START + inode.blocks[i];
-        if (bread(DEVICE_IMAGE, blockNumber, data_buffer) == -1) {
-            return -2;   
-        }
-
-        uint16_t new_crc = CRC16((unsigned char *) data_buffer, BLOCK_SIZE, 0);
-
-        long crc_block = (blockNumber * 2)/ BLOCK_SIZE;
-        long index = (blockNumber * 2) % BLOCK_SIZE;
-        if (crc_block != loaded_crc) {
-            if (bread(DEVICE_IMAGE, 3 + crc_block, (char *) crc_buffer) == -1) {
-                return -2;    
-            }
-            loaded_crc = crc_block;
-        }
-
-        uint16_t prev_crc = crc_buffer[index / 2];
-
-
-        printf("Checking block: %d, which corresponds to crc_block: %ld and index: %ld prev: %d new: %d\n", blockNumber, crc_block,
-        index, prev_crc, new_crc);
-
-        if (prev_crc != new_crc) {
-            return -1;    
+        int ret;
+        if ((ret = check_crc(blockNumber)) != 0) {
+            return ret; 
         }
     } 
 	return 0;
@@ -444,9 +448,8 @@ int bwrite_with_crc(char *deviceName, int blockNumber, char *buffer) {
     bread(DEVICE_IMAGE, 3 + crc_block, (char *) crc_buffer);
     // Compute CRC hash
     uint16_t new_crc = CRC16((unsigned char *) buffer, BLOCK_SIZE, 0);
-
-    printf("Writing block: %d, which corresponds to crc_block: %ld and index: %ld with value: %d\n", blockNumber, crc_block,
-        index, new_crc);
+    
+    printf("Writing block: %d\n", blockNumber);
 
      // Write CRC hash
     //memcpy(crc_buffer + index, &new_crc, sizeof(uint16_t));
@@ -455,4 +458,34 @@ int bwrite_with_crc(char *deviceName, int blockNumber, char *buffer) {
         return -2;
     }
     return 0;
+}
+
+/* Returns 0 if data is ok, -1 if it is corrupt, -2 otherwise */
+int check_crc(int blockNumber) {
+    char data_buffer[BLOCK_SIZE];
+    int loaded_crc = -1;
+    uint16_t crc_buffer[BLOCK_SIZE / 2];
+    if (bread(DEVICE_IMAGE, blockNumber, data_buffer) == -1) {
+        return -2;   
+    }
+
+    uint16_t new_crc = CRC16((unsigned char *) data_buffer, BLOCK_SIZE, 0);
+
+    long crc_block = (blockNumber * 2)/ BLOCK_SIZE;
+    long index = (blockNumber * 2) % BLOCK_SIZE;
+    if (crc_block != loaded_crc) {
+        if (bread(DEVICE_IMAGE, 3 + crc_block, (char *) crc_buffer) == -1) {
+            return -2;    
+        }
+        loaded_crc = crc_block;
+    }
+
+    uint16_t prev_crc = crc_buffer[index / 2];
+
+    if (prev_crc != new_crc) {
+        return -1;    
+    }
+
+    return 0;
+
 }
