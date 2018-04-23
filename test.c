@@ -27,6 +27,7 @@ int test_createFile();
 int test_unmountFS();
 int test_removeFile();
 int test_write();
+int test_big_write();
 
 int main() {
 	int ret;
@@ -88,7 +89,18 @@ int main() {
 
 
    //////// 
+    
+    ret = test_big_write();
+	if(ret != 0) {
+		fprintf(stdout, "%s%s%s%s%s", ANSI_COLOR_BLUE, "TEST big write ", ANSI_COLOR_RED, "FAILED\n", ANSI_COLOR_RESET);
+		return -1;
+	}
+	fprintf(stdout, "%s%s%s%s%s", ANSI_COLOR_BLUE, "TEST big write ", ANSI_COLOR_GREEN, "SUCCESS\n", ANSI_COLOR_RESET);
+
+
+   //////// 
  
+
     return 0;
 }
 
@@ -213,10 +225,52 @@ int test_write() {
     if (ret < 0) {
         return -1;    
     }
-    printf("%s\n", buffer2);
     closeFile(fd);
     if (strcmp(buffer, buffer2) != 0) {
         return -1;    
     }
+    removeFile("test.txt");
     return 0;
+}
+
+int test_big_write() {
+    createFile("test.txt");
+    int fd = openFile("test.txt");
+    if (fd == -1) {
+        return -1;    
+    }
+    char buffer[2 * BLOCK_SIZE];
+    for (int i = 0; i < 2 * BLOCK_SIZE / 12; i++) {
+        strcpy(&buffer[i * 12], "Hello world");    
+    }
+    int ret = writeFile(fd, buffer, 2 * BLOCK_SIZE);
+    if (ret < 0) {
+        return -1;    
+    }
+
+    char buffer2[2 * BLOCK_SIZE];
+    ret = readFile(fd, buffer2, 2 * BLOCK_SIZE);
+    if (ret < 0) {
+        return -1;    
+    }
+    closeFile(fd);
+    int i;
+    for (i = 0; i < BLOCK_SIZE * 2; i++) {
+        if (buffer[i] != buffer2[i]) {
+            break;       
+        }
+    }
+    if (i != 2 * BLOCK_SIZE) {
+        buffer[i + 10] = '\0';
+        buffer2[i + 10] = '\0';
+        printf("At index %d: %s != %s\n", i, &buffer[i], &buffer2[i]);
+        return -1;
+    }
+
+    ret = memcmp(buffer, buffer2, 2 * BLOCK_SIZE);
+    if (ret != 0) {
+        return -1;    
+    }
+    return 0;
+
 }

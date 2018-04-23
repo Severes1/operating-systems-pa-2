@@ -52,9 +52,7 @@ int mountFS(void)
     SuperBlock sblock = load_superblock();
 
     INODE_START = 3;
-    printf("Mounting the file system!\n");
     DATA_BLOCK_START = 3 + sblock.max_inodes;
-    printf("%d\n", DATA_BLOCK_START);
 
     return 0;
 }
@@ -226,7 +224,6 @@ int readFile(int fileDescriptor, void *buffer, int numBytes)
  */
 int writeFile(int fileDescriptor, void *buffer, int numBytes)
 {
-    printf("%d\n", DATA_BLOCK_START);
     // Check that file is open
     if (fileDescriptor < 0 || OPEN_FILE_TABLE[fileDescriptor] == NULL) {
         return -1;   
@@ -256,8 +253,7 @@ int writeFile(int fileDescriptor, void *buffer, int numBytes)
         if (numBytes - bytes_written < BLOCK_SIZE) {
             bread(DEVICE_IMAGE, DATA_BLOCK_START + block_index, temp_buffer);
         }
-        memcpy(temp_buffer, buffer, numBytes - bytes_written < BLOCK_SIZE ? numBytes - bytes_written : BLOCK_SIZE);
-        printf("Writing: %s in block: %d\n", temp_buffer, block_index);
+        memcpy(temp_buffer, buffer + bytes_written, numBytes - bytes_written < BLOCK_SIZE ? numBytes - bytes_written : BLOCK_SIZE);
         bwrite(DEVICE_IMAGE, DATA_BLOCK_START + block_index, temp_buffer);
         bytes_written += BLOCK_SIZE;
         current_block++;
